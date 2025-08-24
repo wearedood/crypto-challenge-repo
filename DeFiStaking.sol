@@ -11,6 +11,11 @@ import "@openzeppelin/contracts/security/Pausable.sol";
  * @title DeFiStaking
  * @dev A comprehensive DeFi staking contract with multiple reward pools and flexible staking periods
  * @author Crypto Challenge Repository
+ * @notice Advanced DeFi staking contract with multiple reward pools, flexible lock periods, and compound staking
+ * @dev Implements ReentrancyGuard for security, Ownable for access control, and Pausable for emergency stops
+ * @dev Features include: multiple staking pools, flexible lock periods, compound rewards, emergency withdrawal
+ * @dev Gas optimized with efficient reward calculations and batch operations support
+ * @version 2.0.0 - Enhanced with security features and advanced staking mechanisms
  */
 contract DeFiStaking is ReentrancyGuard, Ownable, Pausable {
     using SafeERC20 for IERC20;

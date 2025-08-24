@@ -400,3 +400,75 @@ contract DeFiStaking is ReentrancyGuard, Ownable, Pausable {
         IERC20(tokenAddress).safeTransfer(owner(), tokenAmount);
     }
 }"
+
+    // ========== GAS OPTIMIZATION FEATURES ==========
+
+    /**
+     * @notice Batch claim rewards from multiple pools to save gas
+     * @dev Allows users to claim rewards from multiple pools in a single transaction
+     * @param _pids Array of pool IDs to claim rewards from
+     * @dev Emits RewardClaimed event for each pool
+     */
+    function batchClaimRewards(uint256[] calldata _pids) external nonReentrant whenNotPaused {
+        require(_pids.length > 0, "No pools specified");
+        require(_pids.length <= 10, "Too many pools"); // Gas limit protection
+        
+        for (uint256 i = 0; i < _pids.length; i++) {
+            uint256 pid = _pids[i];
+            require(pid < poolInfo.length, "Invalid pool ID");
+            
+            PoolInfo storage pool = poolInfo[pid];
+            StakeInfo storage user = userInfo[pid][msg.sender];
+            
+            if (user.amount == 0) continue; // Skip if no stake
+            
+            updatePoolRewards(pid);
+            uint256 pending = (user.amount * pool.accRewardPerShare) / 1e12 - user.rewardDebt;
+            
+            if (pending > 0) {
+                user.rewardDebt = (user.amount * pool.accRewardPerShare) / 1e12;
+                pool.rewardToken.safeTransfer(msg.sender, pending);
+                emit RewardClaimed(msg.sender, pid, pending);
+            }
+        }
+    }
+
+    /**
+     * @notice Get pending rewards for multiple pools in a single call
+     * @dev Gas-efficient way to check rewards across multiple pools
+     * @param _user User address to check
+     * @param _pids Array of pool IDs to check
+     * @return rewards Array of pending reward amounts
+     */
+    function batchPendingRewards(address _user, uint256[] calldata _pids) 
+        external 
+        view 
+        returns (uint256[] memory rewards) 
+    {
+        rewards = new uint256[](_pids.length);
+        
+        for (uint256 i = 0; i < _pids.length; i++) {
+            uint256 pid = _pids[i];
+            if (pid >= poolInfo.length) {
+                rewards[i] = 0;
+                continue;
+            }
+            
+            PoolInfo storage pool = poolInfo[pid];
+            StakeInfo storage user = userInfo[pid][_user];
+            
+            if (user.amount == 0) {
+                rewards[i] = 0;
+                continue;
+            }
+            
+            uint256 accRewardPerShare = pool.accRewardPerShare;
+            if (block.timestamp > pool.lastRewardTime && pool.totalStaked > 0) {
+                uint256 timeElapsed = block.timestamp - pool.lastRewardTime;
+                uint256 reward = timeElapsed * pool.rewardPerSecond;
+                accRewardPerShare += (reward * 1e12) / pool.totalStaked;
+            }
+            
+            rewards[i] = (user.amount * accRewardPerShare) / 1e12 - user.rewardDebt;
+        }
+    }

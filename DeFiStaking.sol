@@ -54,6 +54,7 @@ contract DeFiStaking is ReentrancyGuard, Ownable, Pausable {
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event RewardClaimed(address indexed user, uint256 indexed pid, uint256 amount);
+    event CompoundStakingToggled(address indexed user, uint256 indexed pid, bool enabled);
     event PoolAdded(uint256 indexed pid, address stakingToken, address rewardToken);
     event PoolUpdated(uint256 indexed pid, uint256 rewardPerSecond);
 
@@ -352,6 +353,44 @@ contract DeFiStaking is ReentrancyGuard, Ownable, Pausable {
 
     function unpause() external onlyOwner {
         _unpause();
+
+    // ========== COMPOUND STAKING FEATURES ==========
+
+    /**
+     * @notice Enable or disable compound staking for a user in a specific pool
+     * @dev When enabled, rewards are automatically reinvested instead of being claimable
+     * @param _pid Pool ID
+     * @param _enabled Whether to enable compound staking
+     * @dev Emits CompoundStakingToggled event
+     */
+    function setCompoundStaking(uint256 _pid, bool _enabled) external nonReentrant whenNotPaused {
+        require(_pid < poolInfo.length, "Invalid pool ID");
+        
+        PoolInfo storage pool = poolInfo[_pid];
+        StakeInfo storage user = userInfo[_pid][msg.sender];
+        
+        require(user.amount > 0, "No staked amount");
+        
+        // Claim any pending rewards before changing compound setting
+        updatePoolRewards(_pid);
+        uint256 pending = (user.amount * pool.accRewardPerShare) / 1e12 - user.rewardDebt;
+        if (pending > 0) {
+            if (_enabled) {
+                // Compound the pending rewards
+                user.amount += pending;
+                pool.totalStaked += pending;
+                emit Deposit(msg.sender, _pid, pending);
+            } else {
+                // Pay out the pending rewards
+                pool.rewardToken.safeTransfer(msg.sender, pending);
+                emit RewardClaimed(msg.sender, _pid, pending);
+            }
+        }
+        
+        user.rewardDebt = (user.amount * pool.accRewardPerShare) / 1e12;
+        
+        emit CompoundStakingToggled(msg.sender, _pid, _enabled);
+    }
     }
 
     /**
